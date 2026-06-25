@@ -1,0 +1,32 @@
+name: ContactCRM
+options:
+  bundleIdPrefix: com.contactcrm
+  deploymentTarget:
+    iOS: "16.0"
+configs:
+  Debug: debug
+  Release: release
+targets:
+  ContactCRM:
+    type: application
+    platform: iOS
+    sources:
+      - path: ContactCRM
+    info:
+      path: ContactCRM/Resources/Info.plist
+      properties:
+        UILaunchScreen: {}
+        NSContactsUsageDescription: "ContactCRM links your CRM notes, pipeline stage, and activity history to your existing Contacts entries. Contact data is never sent off this device."
+        NSFaceIDUsageDescription: "ContactCRM uses Face ID to lock access to your private notes and client history."
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.contactcrm.app
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    entitlements:
+      path: ContactCRM/Resources/ContactCRM.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.contactcrm.app
