@@ -4,13 +4,19 @@ struct ContactListView: View {
     @StateObject private var contactsService = ContactsService.shared
     @State private var contacts: [AppContact] = []
     @State private var selectedCategory: ContactCategory?
+    @State private var searchText = ""
     @State private var showAddContact = false
     @State private var needsPermission = false
 
     private var filtered: [AppContact] {
-        guard let selectedCategory else { return contacts }
-        return contacts.filter { contact in
-            CRMRepository.shared.record(for: contact.id).categoryRaw == selectedCategory.rawValue
+        contacts.filter { contact in
+            let matchesCategory = selectedCategory == nil ||
+                CRMRepository.shared.record(for: contact.id).categoryRaw == selectedCategory?.rawValue
+            let matchesSearch = searchText.isEmpty ||
+                contact.displayName.localizedCaseInsensitiveContains(searchText) ||
+                contact.emails.contains { $0.localizedCaseInsensitiveContains(searchText) } ||
+                contact.phones.contains { $0.contains(searchText) }
+            return matchesCategory && matchesSearch
         }
     }
 
@@ -37,12 +43,13 @@ struct ContactListView: View {
 
                         ForEach(filtered) { contact in
                             NavigationLink(value: contact) {
-                                ContactRow(contact: contact)
+                                ContactRow(contact: contact, onUpdated: reload)
                             }
                         }
                     }
+                    .searchable(text: $searchText, prompt: "Search name, email, phone")
                     .navigationDestination(for: AppContact.self) { contact in
-                        ContactDetailView(contact: contact)
+                        ContactDetailView(contact: contact, onUpdated: reload)
                     }
                 }
             }
@@ -67,27 +74,19 @@ struct ContactListView: View {
         }
     }
 
-    private func reload() {
+    func reload() {
         contacts = contactsService.fetchAll()
     }
 }
 
 private struct ContactRow: View {
     let contact: AppContact
+    var onUpdated: () -> Void
+    @State private var showEdit = false
 
     var body: some View {
         HStack {
-            if let imageData = contact.imageData, let uiImage = UIImage(data: imageData) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .frame(width: 40, height: 40)
-                    .clipShape(Circle())
-            } else {
-                Image(systemName: "person.crop.circle.fill")
-                    .resizable()
-                    .frame(width: 40, height: 40)
-                    .foregroundStyle(.secondary)
-            }
+            ContactAvatarView(imageData: contact.imageData)
             VStack(alignment: .leading) {
                 Text(contact.displayName)
                 if !contact.jobTitle.isEmpty {
@@ -96,6 +95,14 @@ private struct ContactRow: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            Spacer()
+        }
+        .swipeActions(edge: .trailing) {
+            Button { showEdit = true } label: { Label("Edit", systemImage: "pencil") }
+                .tint(.blue)
+        }
+        .sheet(isPresented: $showEdit) {
+            EditContactView(contact: contact) { _ in onUpdated() }
         }
     }
 }

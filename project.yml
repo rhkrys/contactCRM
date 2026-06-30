@@ -18,6 +18,8 @@ targets:
         UILaunchScreen: {}
         NSContactsUsageDescription: "ContactCRM links your CRM notes, pipeline stage, and activity history to your existing Contacts entries. Contact data is never sent off this device."
         NSFaceIDUsageDescription: "ContactCRM uses Face ID to lock access to your private notes and client history."
+        NSPhotoLibraryUsageDescription: "Choose a photo for your contact's profile picture. Photos are stored only on this device inside the iOS Contacts app."
+        NSUserNotificationsUsageDescription: "ContactCRM sends reminders you schedule for specific contacts. No other notifications are sent."
         ITSAppUsesNonExemptEncryption: false
     settings:
       base:

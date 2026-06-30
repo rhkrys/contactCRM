@@ -1,19 +1,30 @@
 import PhotosUI
 import SwiftUI
 
-struct AddContactView: View {
+struct EditContactView: View {
     @Environment(\.dismiss) private var dismiss
-    var onSaved: () -> Void
+    let contact: AppContact
+    var onSaved: (AppContact) -> Void
 
-    @State private var givenName = ""
-    @State private var familyName = ""
-    @State private var jobTitle = ""
-    @State private var email = ""
-    @State private var phone = ""
-    @State private var category: ContactCategory = .newLead
+    @State private var givenName: String
+    @State private var familyName: String
+    @State private var jobTitle: String
+    @State private var email: String
+    @State private var phone: String
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var imageData: Data?
     @State private var errorMessage: String?
+
+    init(contact: AppContact, onSaved: @escaping (AppContact) -> Void) {
+        self.contact = contact
+        self.onSaved = onSaved
+        _givenName = State(initialValue: contact.givenName)
+        _familyName = State(initialValue: contact.familyName)
+        _jobTitle = State(initialValue: contact.jobTitle)
+        _email = State(initialValue: contact.emails.first ?? "")
+        _phone = State(initialValue: contact.phones.first ?? "")
+        _imageData = State(initialValue: contact.imageData)
+    }
 
     var body: some View {
         NavigationStack {
@@ -23,14 +34,11 @@ struct AddContactView: View {
                         Spacer()
                         PhotosPicker(selection: $selectedPhoto, matching: .images) {
                             ContactAvatarView(imageData: imageData, size: 80)
-                                .overlay(alignment: .bottomTrailing) {
-                                    Image(systemName: "plus.circle.fill")
-                                        .foregroundStyle(.accent)
-                                        .background(Circle().fill(.white))
-                                }
                         }
                         .onChange(of: selectedPhoto) { _, item in
-                            Task { imageData = try? await item?.loadTransferable(type: Data.self) }
+                            Task {
+                                imageData = try? await item?.loadTransferable(type: Data.self)
+                            }
                         }
                         Spacer()
                     }
@@ -48,16 +56,11 @@ struct AddContactView: View {
                     TextField("Phone", text: $phone)
                         .keyboardType(.phonePad)
                 }
-                Section("Category") {
-                    Picker("Category", selection: $category) {
-                        ForEach(ContactCategory.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                }
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(.red)
                 }
             }
-            .navigationTitle("New Contact")
+            .navigationTitle("Edit Contact")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -70,7 +73,8 @@ struct AddContactView: View {
 
     private func save() {
         do {
-            let contact = try ContactsService.shared.create(
+            let updated = try ContactsService.shared.update(
+                contact: contact,
                 givenName: givenName,
                 familyName: familyName,
                 jobTitle: jobTitle,
@@ -78,10 +82,7 @@ struct AddContactView: View {
                 phone: phone,
                 imageData: imageData
             )
-            let record = CRMRepository.shared.record(for: contact.id)
-            CRMRepository.shared.setCategory(category, for: record)
-            CRMRepository.shared.setPipelineStage(.newLead, for: record)
-            onSaved()
+            onSaved(updated)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

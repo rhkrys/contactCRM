@@ -21,13 +21,14 @@ final class ContactsService: ObservableObject {
     static let shared = ContactsService()
 
     private let store = CNContactStore()
-    private let keysToFetch: [CNKeyDescriptor] = [
+    let keysToFetch: [CNKeyDescriptor] = [
         CNContactGivenNameKey as CNKeyDescriptor,
         CNContactFamilyNameKey as CNKeyDescriptor,
         CNContactJobTitleKey as CNKeyDescriptor,
         CNContactEmailAddressesKey as CNKeyDescriptor,
         CNContactPhoneNumbersKey as CNKeyDescriptor,
-        CNContactImageDataKey as CNKeyDescriptor
+        CNContactImageDataKey as CNKeyDescriptor,
+        CNContactImageDataAvailableKey as CNKeyDescriptor
     ]
 
     @Published var authorizationStatus: CNAuthorizationStatus = CNContactStore.authorizationStatus(for: .contacts)
@@ -51,8 +52,41 @@ final class ContactsService: ObservableObject {
         return results.sorted { $0.displayName < $1.displayName }
     }
 
+    func fetch(identifier: String) -> AppContact? {
+        let predicate = CNContact.predicateForContacts(withIdentifiers: [identifier])
+        guard let contact = try? store.unifiedContacts(matching: predicate, keysToFetch: keysToFetch).first else {
+            return nil
+        }
+        return Self.map(contact)
+    }
+
     func create(givenName: String, familyName: String, jobTitle: String, email: String?, phone: String?, imageData: Data?) throws -> AppContact {
         let mutable = CNMutableContact()
+        apply(givenName: givenName, familyName: familyName, jobTitle: jobTitle,
+              email: email, phone: phone, imageData: imageData, to: mutable)
+        let saveRequest = CNSaveRequest()
+        saveRequest.add(mutable, toContainerWithIdentifier: nil)
+        try store.execute(saveRequest)
+        return Self.map(mutable)
+    }
+
+    func update(contact: AppContact, givenName: String, familyName: String, jobTitle: String, email: String?, phone: String?, imageData: Data?) throws -> AppContact {
+        let predicate = CNContact.predicateForContacts(withIdentifiers: [contact.id])
+        guard let existing = try? store.unifiedContacts(matching: predicate, keysToFetch: keysToFetch).first,
+              let mutable = existing.mutableCopy() as? CNMutableContact else {
+            throw ContactsError.notFound
+        }
+        apply(givenName: givenName, familyName: familyName, jobTitle: jobTitle,
+              email: email, phone: phone, imageData: imageData, to: mutable)
+        let saveRequest = CNSaveRequest()
+        saveRequest.update(mutable)
+        try store.execute(saveRequest)
+        return Self.map(mutable)
+    }
+
+    private func apply(givenName: String, familyName: String, jobTitle: String,
+                       email: String?, phone: String?, imageData: Data?,
+                       to mutable: CNMutableContact) {
         mutable.givenName = givenName
         mutable.familyName = familyName
         mutable.jobTitle = jobTitle
@@ -65,10 +99,6 @@ final class ContactsService: ObservableObject {
         if let imageData {
             mutable.imageData = imageData
         }
-        let saveRequest = CNSaveRequest()
-        saveRequest.add(mutable, toContainerWithIdentifier: nil)
-        try store.execute(saveRequest)
-        return Self.map(mutable)
     }
 
     private static func map(_ contact: CNContact) -> AppContact {
@@ -82,4 +112,8 @@ final class ContactsService: ObservableObject {
             imageData: contact.imageData
         )
     }
+}
+
+enum ContactsError: Error {
+    case notFound
 }
