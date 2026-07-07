@@ -68,7 +68,7 @@ const App = (() => {
   function render() {
     document.querySelectorAll('.tab').forEach(t =>
       t.classList.toggle('active', t.dataset.view === view));
-    const views = { dashboard, contacts, contactDetail, pipelines, reminders, settings };
+    const views = { dashboard, contacts, contactDetail, pipelines, call, reminders, settings };
     if (detailContactId && view === 'contacts') { contactDetail(); return; }
     (views[view] || dashboard)();
   }
@@ -165,6 +165,7 @@ const App = (() => {
               <div class="row-title">${esc(fullName(c))}</div>
               <div class="row-sub">${esc(c.title || c.email || '')}</div>
             </div>
+            ${c.phone ? `<button class="btn-ghost btn-small" data-queue="${c.id}" title="Add to call queue">＋📞</button>` : ''}
             <span class="chip">${esc(c.category)}</span>
           </div>`).join('')}
       </div>
@@ -172,6 +173,12 @@ const App = (() => {
     $('#contact-search').addEventListener('input', e => { searchText = e.target.value; contacts(); });
     $('#category-filter').addEventListener('change', e => { categoryFilter = e.target.value; contacts(); });
     $('#add-contact').addEventListener('click', () => contactForm());
+    document.querySelectorAll('[data-queue]').forEach(b =>
+      b.addEventListener('click', e => {
+        e.stopPropagation();
+        Store.queueAdd(b.dataset.queue);
+        b.textContent = '✓';
+      }));
     bindOpenContact();
   }
 
@@ -196,6 +203,8 @@ const App = (() => {
         </div>
       </div>
       <div class="toolbar">
+        ${c.phone ? `<a class="btn-primary btn-small" href="${dialHref(c)}" style="text-decoration:none">📞 Call</a>` : ''}
+        <button class="btn-ghost btn-small" id="queue-contact">＋ Queue</button>
         <button class="btn-ghost btn-small" id="edit-contact">Edit</button>
         <button class="btn-danger btn-small" id="delete-contact">Delete</button>
       </div>
@@ -274,6 +283,10 @@ const App = (() => {
     `;
 
     $('#back').addEventListener('click', () => { detailContactId = null; contacts(); });
+    $('#queue-contact').addEventListener('click', () => {
+      Store.queueAdd(c.id);
+      $('#queue-contact').textContent = '✓ Queued';
+    });
     $('#edit-contact').addEventListener('click', () => contactForm(c));
     $('#delete-contact').addEventListener('click', () => {
       if (confirm(`Delete ${fullName(c)} and all CRM data for them?`)) {
@@ -465,6 +478,112 @@ const App = (() => {
     document.querySelector('[data-close]').addEventListener('click', () => pipelines());
   }
 
+  /* ============ CALL QUEUE (auto-advance dialer) ============ */
+
+  function call() {
+    const queued = Store.queueContacts();
+    const dialApp = Store.data.dialApp || 'tel';
+
+    main().innerHTML = `
+      <h2 class="section-title">Call queue</h2>
+
+      <div class="card">
+        <h3>Dial with</h3>
+        <div class="pipeline-chips" id="dial-apps">
+          ${Store.DIAL_APPS.map(a => `
+            <button class="pipeline-chip ${dialApp === a.id ? 'active' : ''}" data-app="${a.id}">${a.icon} ${a.label}</button>`).join('')}
+        </div>
+        <p class="row-sub" style="white-space:normal; line-height:1.5">
+          Tapping “Call” opens the app with the number ready — iOS still needs one tap to connect,
+          then it logs the call and advances to the next contact.
+        </p>
+      </div>
+
+      ${queued.length === 0 ? `
+        <div class="card"><div class="empty-state"><div class="big">📞</div>
+        Queue is empty. Add contacts from the Contacts tab or from a contact's page.</div></div>` : `
+        <div class="toolbar">
+          <span class="chip">${queued.length} in queue</span>
+          <button class="btn-ghost btn-small" id="clear-queue">Clear all</button>
+        </div>
+        ${queued.map((c, i) => `
+          <div class="card" style="padding:14px">
+            <div style="display:flex; align-items:center; gap:12px">
+              ${avatarHTML(c)}
+              <div class="row-body">
+                <div class="row-title">${esc(fullName(c))} ${i === 0 ? '<span class="chip peach">next</span>' : ''}</div>
+                <div class="row-sub">${esc(c.phone || 'no number')}</div>
+              </div>
+            </div>
+            <div class="toolbar" style="margin-top:12px; margin-bottom:0">
+              <button class="btn-primary" data-call="${c.id}" ${c.phone ? '' : 'disabled'}>📞 Call</button>
+              <button class="btn-ghost btn-small" data-log="${c.id}">Log outcome</button>
+              <button class="btn-danger btn-small" data-dequeue="${c.id}">Remove</button>
+            </div>
+          </div>`).join('')}
+      `}
+    `;
+
+    document.querySelectorAll('[data-app]').forEach(b =>
+      b.addEventListener('click', () => { Store.setDialApp(b.dataset.app); call(); }));
+    const clr = $('#clear-queue');
+    if (clr) clr.addEventListener('click', () => {
+      if (confirm('Clear the whole call queue?')) { Store.queueClear(); call(); }
+    });
+    document.querySelectorAll('[data-call]').forEach(b =>
+      b.addEventListener('click', () => placeCall(b.dataset.call)));
+    document.querySelectorAll('[data-log]').forEach(b =>
+      b.addEventListener('click', () => logCallOutcome(b.dataset.log)));
+    document.querySelectorAll('[data-dequeue]').forEach(b =>
+      b.addEventListener('click', () => { Store.queueRemove(b.dataset.dequeue); call(); }));
+  }
+
+  function placeCall(contactId) {
+    const c = Store.data.contacts.find(c => c.id === contactId);
+    if (!c || !c.phone) return;
+    const app = Store.DIAL_APPS.find(a => a.id === (Store.data.dialApp || 'tel')) || Store.DIAL_APPS[0];
+    const number = c.phone.replace(/[^\d+]/g, '');
+    // Hand off to the phone/app. iOS presents its confirmation before connecting.
+    window.location.href = app.scheme(number);
+    // Offer to log + advance right after the hand-off.
+    setTimeout(() => logCallOutcome(contactId, true), 800);
+  }
+
+  function logCallOutcome(contactId, advance) {
+    const c = Store.data.contacts.find(c => c.id === contactId);
+    if (!c) return;
+    showModal(`
+      <h2>Log call — ${esc(fullName(c))}</h2>
+      <div class="field"><label>Outcome</label>
+        <select id="call-outcome">
+          <option>Connected</option>
+          <option>Left voicemail</option>
+          <option>No answer</option>
+          <option>Wrong number</option>
+          <option>Call back later</option>
+        </select>
+      </div>
+      <div class="field"><label>Notes</label>
+        <textarea id="call-notes" rows="3" placeholder="What happened…"></textarea>
+      </div>
+      <div class="field">
+        <label><input type="checkbox" id="call-remove" checked style="width:auto; margin-right:6px">Remove from queue${advance ? ' and go to next' : ''}</label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-ghost" data-close>Skip</button>
+        <button class="btn-primary" id="call-save">Save</button>
+      </div>
+    `);
+    $('#call-save').addEventListener('click', () => {
+      const outcome = $('#call-outcome').value;
+      const notes = $('#call-notes').value.trim();
+      Store.addActivity(contactId, 'call', notes ? `${outcome} — ${notes}` : outcome);
+      if ($('#call-remove').checked) Store.queueRemove(contactId);
+      closeModal();
+      call();
+    });
+  }
+
   /* ============ REMINDERS ============ */
 
   function reminders() {
@@ -563,6 +682,11 @@ const App = (() => {
   /* ============ HELPERS ============ */
 
   const fullName = c => [c.firstName, c.lastName].filter(Boolean).join(' ') || '(no name)';
+
+  function dialHref(c) {
+    const app = Store.DIAL_APPS.find(a => a.id === (Store.data.dialApp || 'tel')) || Store.DIAL_APPS[0];
+    return app.scheme((c.phone || '').replace(/[^\d+]/g, ''));
+  }
 
   function avatarHTML(c, size) {
     const style = size ? `style="width:${size}px;height:${size}px"` : '';

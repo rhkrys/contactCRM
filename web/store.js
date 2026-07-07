@@ -16,11 +16,21 @@ const Store = (() => {
 
   let data = null;
 
+  const DIAL_APPS = [
+    { id: 'tel', label: 'Phone', icon: '📞', scheme: n => `tel:${n}` },
+    { id: 'facetime-audio', label: 'FaceTime Audio', icon: '🎧', scheme: n => `facetime-audio:${n}` },
+    { id: 'facetime', label: 'FaceTime Video', icon: '📹', scheme: n => `facetime:${n}` },
+    { id: 'skype', label: 'Skype', icon: '🟦', scheme: n => `skype:${n}?call` },
+    { id: 'whatsapp', label: 'WhatsApp', icon: '🟢', scheme: n => `whatsapp://send?phone=${n}` },
+  ];
+
   function blank() {
     return {
       contacts: [],   // {id, firstName, lastName, title, email, phone, photo, category, stage, pipelineId, stageId, notes, likes, dislikes, activities:[], createdAt, updatedAt}
       pipelines: [],  // {id, name, stages:[{id, name}]}
       reminders: [],  // {id, contactId, title, due, done}
+      callQueue: [],  // ordered array of contact ids still to call
+      dialApp: 'tel', // preferred app id
     };
   }
 
@@ -33,6 +43,9 @@ const Store = (() => {
       console.error('Could not decrypt store', e);
       data = blank();
     }
+    // Migrate older stores that predate the call queue.
+    if (!Array.isArray(data.callQueue)) data.callQueue = [];
+    if (!data.dialApp) data.dialApp = 'tel';
     return data;
   }
 
@@ -130,6 +143,22 @@ const Store = (() => {
       .sort((a, b) => a.due - b.due);
   }
 
+  /* Call queue */
+  function queueAdd(contactId) {
+    if (!data.callQueue.includes(contactId)) { data.callQueue.push(contactId); save(); }
+  }
+  function queueRemove(contactId) {
+    data.callQueue = data.callQueue.filter(id => id !== contactId);
+    save();
+  }
+  function queueClear() { data.callQueue = []; save(); }
+  function queueContacts() {
+    return data.callQueue
+      .map(id => data.contacts.find(c => c.id === id))
+      .filter(Boolean);
+  }
+  function setDialApp(appId) { data.dialApp = appId; save(); }
+
   function wipe() {
     data = blank();
     save();
@@ -138,9 +167,10 @@ const Store = (() => {
   return {
     load, save, wipe,
     get data() { return data; },
-    DEFAULT_STAGES, CATEGORIES, ACTIVITY_TYPES,
+    DEFAULT_STAGES, CATEGORIES, ACTIVITY_TYPES, DIAL_APPS,
     addContact, updateContact, deleteContact, addActivity,
     addPipeline, updatePipeline, deletePipeline,
     addReminder, completeReminder, deleteReminder, upcomingReminders,
+    queueAdd, queueRemove, queueClear, queueContacts, setDialApp,
   };
 })();
