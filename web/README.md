@@ -36,6 +36,13 @@ python3 -m http.server 8080
 
 "Continue without Google (local demo)" works with no setup at all.
 
+## Infrastructure
+
+Deployed to AWS at **https://sales.awesomeblackbusiness.com**. See
+[`infra/ARCHITECTURE.md`](infra/ARCHITECTURE.md) for the diagram and
+[`infra/terraform`](infra/terraform) for the Terraform. Publish content changes
+with [`deploy.sh`](deploy.sh).
+
 ## Files
 
 | File | Purpose |
